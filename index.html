@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Life.io</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; background-color: white; }
+    #map { display: block; transform: scale(6); transform-origin: 0 0; }
+    #graphC {
+      position: fixed; right:20px; bottom: 20px; padding:10px;
+      width: 400px; height: 200px; background-color: rgba(255,255,255,0.8);
+      box-shadow: 0px 0px 4px rgba(0,0,0,0.8); border-radius: 4px;
+    }
+    #pauseScreen {
+      position: fixed; right:0px; bottom: 0px; left: 0px; top: 0px;
+      display: flex; align-items: center; justify-content: center;
+      background-color: rgba(0,0,0,0.25);
+    }
+    #pauseScreen > div {
+      padding: 20px; text-align: center;
+      background-color: rgba(255,255,255,0.8);
+      box-shadow: 0px 0px 4px rgba(0,0,0,0.8); border-radius: 4px;
+      font-size: 18px; font-family: Arial; font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+  <canvas id="map"></canvas>
+
+  <div id="pauseScreen" style="display:none;">
+    <div>PAUSED</div>
+  </div>
+
+  <div id="graphC">
+    <canvas id="graph"></canvas>
+  </div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.6.0/Chart.bundle.min.js"></script>
+<script>
+  // Initialisation du contexte de dessin et des variables
+  var c = document.getElementById('map'), ctx = c.getContext('2d')
+  var cG = document.getElementById('graph'), ctxG = cG.getContext('2d')
+  var image, imgData, px = [], w, h, nB = [], nR = [], myGraph, graphL = 100
+  var pauseState = false
+
+  // Fonction appelee pour gerer la pause
+  var togglePause = () => {
+    pauseState = !pauseState
+    var el = document.getElementById('pauseScreen');
+    if(pauseState){el.style.display = 'flex'}else{el.style.display = 'none'}
+    if(!pauseState){requestAnimationFrame(updateMap)}
+  }
+
+  // On écoute les clics pour activer ou enlever la pause
+  document.onclick = togglePause
+
+  // Fonction appelee pour initialiser les cellules
+  var initMap = () => {
+    [c.width,c.height] = [w,h] = [
+      Math.floor(window.innerWidth/6),
+      Math.floor(window.innerHeight/6)
+    ]
+    px = Array(w).fill().map(() => Array(h).fill().map(() => {
+      return {
+        s: Math.random()>(5/8),
+        c: Math.random()>0.5
+      }
+    }))
+    drawMap()
+  }
+
+  // Fonction appelee pour mettre à jour les cellules
+  var updateMap = () => {
+    px = px.map((v,x,a) => v.map((w,y) => cellNextState(x,y,a)))
+    drawMap()
+  }
+
+  // Fonction qui donne l'état suivant d'une cellule
+  var cellNextState = (x,y,a) => {
+    var ax = x==0?w-1:x-1, bx = x==w-1?0:x+1
+    var ay = y==0?h-1:y-1, by = y==h-1?0:y+1
+    // Somme des cellules voisines
+    var s = [
+      a[ax][ay].s,a[x][ay].s,a[bx][ay].s,a[bx][y].s,
+      a[bx][by].s,a[x][by].s,a[ax][by].s,a[ax][y].s
+    ].reduce((s,v) => s+1*v, 0)
+    // Somme des couleurs des voisines
+    var c = [
+      a[ax][ay].s*a[ax][ay].c,a[x][ay].s*a[x][ay].c,
+      a[bx][ay].s*a[bx][ay].c,a[bx][y].s*a[bx][y].c,
+      a[bx][by].s*a[bx][by].c,a[x][by].s*a[x][by].c,
+      a[ax][by].s*a[ax][by].c,a[ax][y].s*a[ax][y].c
+    ].reduce((s,v) => s+1*v, 0)
+    return {
+      s: (s<2||s>3)?0:(s==3)?1:a[x][y].s,
+      c: s==3?c<2?0:1:a[x][y].c
+    }
+  }
+
+  // Fonction appelee pour dessiner sur le canvas
+  var drawMap = () => {
+    countCells()
+    ctx.clearRect(0,0,w,h)
+    image = ctx.createImageData(w,h); imgData = image.data
+    px.map((v,x) => v.map((w,y) => px[x][y].s && drawPixel(x,y,px[x][y].c)))
+    ctx.putImageData(image,0,0)
+    if(!pauseState){ requestAnimationFrame(updateMap) }
+  }
+
+  // Fonction pour dessiner le pixel situe en (x,y)
+  var drawPixel = (x,y,c) => {
+    var n = 4*(y*w+x)
+    imgData[n+3] = 255 // Opacité
+    if(c){ // Rouge
+      imgData[n] = 231; imgData[n+1] = 76; imgData[n+2] = 60
+    }else{ // Bleu
+      imgData[n] = 52; imgData[n+1] = 152; imgData[n+2] = 219
+    }
+  }
+
+  // Fonction appelee pour compter les cellules
+  var countCells = () => {
+    nB.push(px.reduce((s,v) => s+1*v.reduce((s,v) => s+1*v.s*!v.c, 0), 0))
+    nR.push(px.reduce((s,v) => s+1*v.reduce((s,v) => s+1*v.s*v.c, 0), 0))
+    if(nB.length>graphL){nB.shift()}
+    if(nR.length>graphL){nR.shift()}
+    myGraph.data.datasets[0].data = nR
+    myGraph.data.datasets[1].data = nB
+    myGraph.update()
+  }
+
+  // Fonction appelee pour dessiner le graphique
+  var initGraph = () => {
+    myGraph = new Chart(ctxG, {
+      type: 'line',
+      data: {
+        labels: Array(graphL).fill(''),
+        datasets: [{
+          label: 'Red',
+          backgroundColor: 'rgb(231, 76, 60)',
+          borderColor: 'rgb(231, 76, 60)',
+          data: [],
+          fill: false
+        },{
+          label: 'Blue',
+          backgroundColor: 'rgb(52, 152, 219)',
+          borderColor: 'rgb(52, 152, 219)',
+          data: [],
+          fill: false
+        }]
+      },
+      options: {
+        elements: {
+          line: {
+            tension: 0
+          },
+          point: {
+            radius: 0
+          }
+        },
+        animation: {
+          duration: 200,
+        },
+        tooltips: {
+          enabled: false
+        },
+        legend: {
+            display: false
+        },
+        responsive: true,
+        scales: {
+          xAxes: [{
+            display: false
+          }],
+          yAxes: [{
+            display: true
+          }]
+        }
+      }
+    })
+  }
+
+  initGraph() // Initialisation du graphique
+  initMap() // Lancement du jeu de la vie
+</script>
+</body>
+</html>
